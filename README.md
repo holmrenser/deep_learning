@@ -11,7 +11,7 @@ Topics:
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
-- Positional encoding <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/positional_encoding.ipynb">
+- Word embedding <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/word_embedding.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
