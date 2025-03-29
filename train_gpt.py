@@ -16,8 +16,8 @@ from torch.nn import functional as F
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import RandomSampler, random_split
 
-DEVICE = torch.device('cuda') # 'mps' for ARM macbooks, 'cuda' for colab, 'cpu' otherwise
-DATASET = 'war_peace_plain'
+DEVICE = torch.device('cuda:1') # 'mps' for ARM macbooks, 'cuda' for colab, 'cpu' otherwise
+DATASET = 'shakespeare'
 
 
 # %% [markdown]
@@ -29,36 +29,21 @@ DATASET = 'war_peace_plain'
 
 # %%
 class CharacterTokenizer:
-    """Character level tokenizer that enumerates unique characters in a training text"""
-    def __init__(self, encoding_dict: dict[str, int]=None):
-        if encoding_dict is None:
-            self.encoding_dict = dict()
-        else:
-            self.encoding_dict = encoding_dict
+    """Character level tokenizer that enumerates the first 256 unicode characters"""
+    def __init__(self):
+        self.vocab_size = 256
+        self.encoding_dict = {chr(token_i): token_i for token_i in range(256)}
+        self.decoding_dict = {token_i: chr(token_i) for token_i in range(256)}
 
     def __repr__(self):
         return f'CharacterTokenizer(vocab_size={self.vocab_size})'
 
-    @property
-    def decoding_dict(self) -> dict[int, str]:
-        """Decoding dict is implemented as property to automatically sync with changed encoding dict"""
-        return {token:char for char,token in self.encoding_dict.items()}
-
-    @property
-    def vocab_size(self) -> int:
-        return len(self.encoding_dict)
-
     def get_vocab(self) -> dict[str, int]:
         return self.encoding_dict
 
-    def train(self, data: str) -> None:
-        """Train on a piece of text by enumerating unique characters"""
-        chars = sorted(set(data))
-        self.encoding_dict = {char:token for token,char in enumerate(chars)}
-
     def encode(self, data: str) -> list[int]:
         """Convert text to tokens"""
-        return [self.encoding_dict.get(char, -1) for char in data]
+        return [self.encoding_dict.get(char, 0) for char in data]
 
     def decode(self, tokens: list[int]) -> str:
         """Convert tokens to text"""
@@ -78,12 +63,10 @@ class CharacterDataset:
         return f'CharacterDataset({n_chars=}, {vocab_size=}, {context_size=})'
 
     @classmethod
-    def from_textfile(cls, filename: str, context_size: int=256) -> 'CharacterDataset':
-        """Load a textfile and automatically 'train' a character level tokenizer"""
-        tokenizer = CharacterTokenizer()
+    def from_textfile(cls, filename: str, tokenizer: CharacterTokenizer, context_size: int=256) -> 'CharacterDataset':
+        """Load a textfile and add a character level tokenizer"""
         with open(filename, 'r') as fh:
             data = fh.read()
-            tokenizer.train(data)
             return cls(data, tokenizer, context_size=context_size)
 
     def __len__(self) -> int:
@@ -238,8 +221,8 @@ class AdditivePositionalEmbedding(nn.Module):
 class GPT(nn.Module):
     def __init__(
         self,
-        context_size: int=None,
-        vocab_size: int=None,
+        context_size: int,
+        tokenizer: CharacterTokenizer,
         n_layers: int=6,
         n_heads: int=8,
         embedding_dim: int=32,
@@ -247,7 +230,8 @@ class GPT(nn.Module):
     ):
         super().__init__()
         self.context_size = context_size
-        self.vocab_size = vocab_size
+        self.vocab_size = tokenizer.vocab_size
+        self.tokenizer = tokenizer
         self.n_layers = n_layers
         self.n_heads = n_heads
         self.embedding_dim = embedding_dim
@@ -255,7 +239,7 @@ class GPT(nn.Module):
 
         # transformer architecture (ref. our naive transformer, only difference is in the transformer block)
         self.transformer = nn.Sequential(
-            nn.Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim),
+            nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=embedding_dim),
             AdditivePositionalEmbedding(context_size, embedding_dim),
             nn.Dropout(dropout),
             nn.Sequential(*[
@@ -263,7 +247,7 @@ class GPT(nn.Module):
                 for _ in range(n_layers)
             ]),
             nn.LayerNorm(embedding_dim),
-            nn.Linear(in_features=embedding_dim, out_features=vocab_size)
+            nn.Linear(in_features=embedding_dim, out_features=self.vocab_size)
         )
 
         # weight tying of input embedding and output projection (https://paperswithcode.com/method/weight-tying)
@@ -283,7 +267,7 @@ class GPT(nn.Module):
         return f'GPT({num_params=}, {context_size=}, {vocab_size=}, {n_attention_layers=}, {n_heads=}, {embedding_dim=}, {dropout=})'
 
     def save(self, filename: str = 'model.pkl') -> None:
-      init_params = {k:v for k,v in self.__dict__.items() if k[0] != '_' and k != 'training'}
+      init_params = {k:v for k,v in self.__dict__.items() if k[0] != '_' and k not in ['training','tokenizer','vocab_size']}
       state_dict = {k: v.to('cpu') for k, v in self.state_dict().items()}
       param_dict = dict(init_params=init_params, state_dict=state_dict)
 
@@ -294,7 +278,7 @@ class GPT(nn.Module):
     def load_pretrained(cls, filename: str = 'model.pkl') -> 'GPT':
       with open(filename,'rb') as fh:
         param_dict = pickle.load(fh)
-      model = cls(**param_dict['init_params'])
+      model = cls(**param_dict['init_params'], tokenizer=CharacterTokenizer())
       model.load_state_dict({k:v.to(DEVICE) for k,v in param_dict['state_dict'].items()})
       return model
 
@@ -314,22 +298,25 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def generate(self, sample_length: int=256) -> list[int]:
+    def generate(self, prompt: str = None, sample_length: int=256) -> list[int]:
         """Generate sample tokens"""
         self.eval()
         device = next(self.parameters()).device
-        idx = torch.zeros(1, dtype=torch.long, device=device)
+        if prompt is None:
+            tokens = torch.zeros(1, dtype=torch.long, device=device)
+        else:
+            tokens = self.tokenizer.encode(prompt)
 
         for _ in trange(sample_length, desc='Sampling'):
-            logits,_,_ = self(idx[-self.context_size:][None])
+            logits,_,_ = self(tokens[-self.context_size:][None])
             logits = logits[0,-1,:]
 
             probs = F.softmax(logits, dim=0)
 
-            idx_next = torch.multinomial(probs, num_samples=1)
-            idx = torch.cat([idx, idx_next])
-
-        return idx.tolist()
+            next_token = torch.multinomial(probs, num_samples=1)
+            tokens = torch.cat([tokens, next_token])
+        tokens = tokens.tolist() # move from tensor on gpu to list on cpu
+        return self.tokenizer.decode(tokens)
 
 
 #model = GPT(context_size=dataset.context_size, vocab_size=dataset.tokenizer.vocab_size)
@@ -349,97 +336,111 @@ class GPT(nn.Module):
 # Experiment with different model configurations (i.e. number of layers, number of embedding dimensions, number of heads), what is the best performance you can achieve in 2000 training steps? What happens if you train for longer?
 
 # %%
-train_steps = 10_000
-batch_size = 64
-context_size = 512
-n_layers = 6
-n_heads = 6
-embedding_dim = 384
-learning_rate = 1e-3
-train_fraction = 0.9
-dropout = 0.1
+if __name__ == '__main__':
+    train_steps = 40_000
+    batch_size = 64
+    context_size = 512
+    n_layers = 8
+    n_heads = 8
+    embedding_dim = 384
+    learning_rate = 1e-3
+    train_fraction = 0.9
+    dropout = 0.1
 
-dataset = CharacterDataset.from_textfile(f'./{DATASET}.input.txt', context_size=context_size)
-print(dataset)
+    tokenizer = CharacterTokenizer()
 
-model = GPT(context_size=dataset.context_size, vocab_size=dataset.tokenizer.vocab_size, n_layers=n_layers, embedding_dim=embedding_dim, n_heads=n_heads, dropout=dropout)
-# model = torch.compile(model)
-print(model)
+    dataset = CharacterDataset.from_textfile(f'./{DATASET}.input.txt', tokenizer=tokenizer, context_size=context_size) 
+    print(dataset)
 
-model.to(DEVICE)
-model.train()
+    model = GPT(context_size=context_size, tokenizer=tokenizer, n_layers=n_layers, embedding_dim=embedding_dim, n_heads=n_heads, dropout=dropout)
+    # model = torch.compile(model)
+    print(model)
+    try: 
+        n_epochs = (train_steps * batch_size) / len(dataset)
+        print(f'Training on {DATASET} for {train_steps=}, {n_epochs=:.3}')
+    except:
+        print(f'Training on {DATASET} for {train_steps=}')
 
-train_dataset, test_dataset = random_split(dataset, [train_fraction, 1 - train_fraction])
+    model.to(DEVICE)
+    model.train()
 
-train_dataloader = DataLoader(
-    dataset=train_dataset,
-    sampler=RandomSampler(train_dataset, num_samples=train_steps * batch_size),
-    batch_size=batch_size,
-)
-test_dataloader = DataLoader(
-    dataset=test_dataset,
-    sampler=RandomSampler(test_dataset, replacement=True),
-    batch_size=batch_size,
-)
-test_dataloader = iter(test_dataloader)
+    train_dataset, test_dataset = random_split(dataset, [train_fraction, 1 - train_fraction])
 
-optimizer = torch.optim.AdamW(params=model.parameters(), lr=learning_rate, betas=(0.9, 0.99))
-scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, total_steps=train_steps)
-model.train()
+    train_dataloader = DataLoader(
+        dataset=train_dataset,
+        sampler=RandomSampler(train_dataset, num_samples=train_steps * batch_size),
+        batch_size=batch_size,
+    )
+    test_dataloader = DataLoader(
+        dataset=test_dataset,
+        sampler=RandomSampler(test_dataset, replacement=True),
+        batch_size=batch_size,
+    )
+    test_dataloader = iter(test_dataloader)
 
-train_losses = []
-train_accuracies = []
-test_losses = []
-test_accuracies = []
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, total_steps=train_steps)
+    model.train()
 
-for i, (train_x, train_y) in enumerate(tqdm(train_dataloader)):
-    # forward the model
-    _,train_loss,train_accuracy = model(train_x.to(DEVICE), train_y.to(DEVICE))
+    train_losses = []
+    train_accuracies = []
+    test_losses = []
+    test_accuracies = []
 
-    # save losses on train and test every 20 iterations
-    if i % 20 == 0:
-        train_losses.append(train_loss.item())
-        train_accuracies.append(train_accuracy.item())
-        test_x, test_y = next(test_dataloader)
-        _,test_loss,test_accuracy = model(test_x.to(DEVICE), test_y.to(DEVICE))
-        test_losses.append(test_loss.item())
-        test_accuracies.append(test_accuracy.item())
+    for i, (train_x, train_y) in enumerate(tqdm(train_dataloader)):
+        # forward the model
+        try:
+            _,train_loss,train_accuracy = model(train_x.to(DEVICE), train_y.to(DEVICE))
+        except Exception as err:
+            print(train_x)
+            print(train_x.min(), train_x.max())
+            print(train_y)
+            print(train_y.min(), train_y.max())
+            raise err
+            
 
-    # backprop and update the parameters
-    model.zero_grad(set_to_none=True)
-    train_loss.backward()
+        # save losses on train and test every 20 iterations
+        if i % 20 == 0:
+            train_losses.append(train_loss.item())
+            train_accuracies.append(train_accuracy.item())
+            test_x, test_y = next(test_dataloader)
+            _,test_loss,test_accuracy = model(test_x.to(DEVICE), test_y.to(DEVICE))
+            test_losses.append(test_loss.item())
+            test_accuracies.append(test_accuracy.item())
 
-    # Prevent gradients from becoming too large
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-    optimizer.step()
-    scheduler.step()
+        # backprop and update the parameters
+        model.zero_grad(set_to_none=True)
+        train_loss.backward()
 
-#fig,[ax1, ax2] = plt.subplots(ncols=2, figsize=(12,4))
-#ax1.plot(train_losses, label='train loss')
-#ax1.plot(test_losses, label='test loss')
-#ax1.legend()
-#ax2.plot(train_accuracies, label='train accuracy')
-#ax2.plot(test_accuracies, label='test accuracy')
-#ax2.legend()
+        # Prevent gradients from becoming too large
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
 
-# %%
-model.save(f'{DATASET}.model.pkl')
+    #fig,[ax1, ax2] = plt.subplots(ncols=2, figsize=(12,4))
+    #ax1.plot(train_losses, label='train loss')
+    #ax1.plot(test_losses, label='test loss')
+    #ax1.legend()
+    #ax2.plot(train_accuracies, label='train accuracy')
+    #ax2.plot(test_accuracies, label='test accuracy')
+    #ax2.legend()
 
-# %% [markdown]
-# ## Evaluate
-# We let the trained model generate a piece of text that should somewhat resemble shakespeare. Compare to what was generated from the untrained model.
+    # %%
+    model.save(f'{DATASET}.model.pkl')
 
-print(train_losses[-1])
+    # %% [markdown]
+    # ## Evaluate
+    # We let the trained model generate a piece of text that should somewhat resemble shakespeare. Compare to what was generated from the untrained model.
 
-# %%
-model.eval()
-sample = model.generate()
-print(dataset.tokenizer.decode(sample))
+    print(f'Final loss = {train_losses[-1]:.3}')
 
-# %%
-#pretrained_model = GPT.load_pretrained()
-#pretrained_model.eval()
-#sample = pretrained_model.generate()
-#print(dataset.tokenizer.decode(sample))
+    # %%
+    print(model.generate())
+
+    # %%
+    #pretrained_model = GPT.load_pretrained()
+    #pretrained_model.eval()
+    #sample = pretrained_model.generate()
+    #print(dataset.tokenizer.decode(sample))
 
 

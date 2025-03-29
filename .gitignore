@@ -3,7 +3,6 @@ glove.6B.50d.txt*
 *input.txt
 *.model
 *.vocab
-*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
