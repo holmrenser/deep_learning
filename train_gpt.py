@@ -349,8 +349,8 @@ if __name__ == '__main__':
 
     tokenizer = CharacterTokenizer()
 
-    dataset = CharacterDataset.from_textfile(f'./{DATASET}.input.txt', tokenizer=tokenizer, context_size=context_size) 
-    print(dataset)
+    train_dataset = CharacterDataset.from_textfile(f'./{DATASET}.input.txt', tokenizer=tokenizer, context_size=context_size) 
+    print(train_dataset)
 
     model = GPT(context_size=context_size, tokenizer=tokenizer, n_layers=n_layers, embedding_dim=embedding_dim, n_heads=n_heads, dropout=dropout)
     # model = torch.compile(model)
@@ -364,28 +364,15 @@ if __name__ == '__main__':
     model.to(DEVICE)
     model.train()
 
-    train_dataset, test_dataset = random_split(dataset, [train_fraction, 1 - train_fraction])
-
     train_dataloader = DataLoader(
         dataset=train_dataset,
         sampler=RandomSampler(train_dataset, num_samples=train_steps * batch_size),
         batch_size=batch_size,
     )
-    test_dataloader = DataLoader(
-        dataset=test_dataset,
-        sampler=RandomSampler(test_dataset, replacement=True),
-        batch_size=batch_size,
-    )
-    test_dataloader = iter(test_dataloader)
-
+    
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, total_steps=train_steps)
     model.train()
-
-    train_losses = []
-    train_accuracies = []
-    test_losses = []
-    test_accuracies = []
 
     for i, (train_x, train_y) in enumerate(tqdm(train_dataloader)):
         # forward the model
@@ -397,16 +384,6 @@ if __name__ == '__main__':
             print(train_y)
             print(train_y.min(), train_y.max())
             raise err
-            
-
-        # save losses on train and test every 20 iterations
-        if i % 20 == 0:
-            train_losses.append(train_loss.item())
-            train_accuracies.append(train_accuracy.item())
-            test_x, test_y = next(test_dataloader)
-            _,test_loss,test_accuracy = model(test_x.to(DEVICE), test_y.to(DEVICE))
-            test_losses.append(test_loss.item())
-            test_accuracies.append(test_accuracy.item())
 
         # backprop and update the parameters
         model.zero_grad(set_to_none=True)
@@ -432,7 +409,7 @@ if __name__ == '__main__':
     # ## Evaluate
     # We let the trained model generate a piece of text that should somewhat resemble shakespeare. Compare to what was generated from the untrained model.
 
-    print(f'Final loss = {train_losses[-1]:.3}')
+    print(f'Final loss = {loss.item():.3}')
 
     # %%
     print(model.generate())
