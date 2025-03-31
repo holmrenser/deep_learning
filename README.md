@@ -24,11 +24,11 @@ Day 1:
 
 Day 2:
 
-- 'Naive' Transformer <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W3D1_naive_transformer.ipynb">
+- 'Naive' Transformer <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W4D1_naive_transformer.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
-- GPT <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W3D1_GPT.ipynb">
+- GPT <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W4D1_GPT.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
