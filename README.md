@@ -34,10 +34,10 @@ Day 2:
 
 Day 3:
 
-- Prompting <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W3D2_prompting.ipynb">
+- Prompting <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W4D2_prompting.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
-- Finetune GLUEBERT <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W3D2_finetune_GLUEBERT.ipynb">
+- Finetune GLUEBERT <a target="_blank" href="https://colab.research.google.com/github/holmrenser/deep_learning/blob/main/W4D2_finetune_GLUEBERT.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
