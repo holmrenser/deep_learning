@@ -1,6 +1,6 @@
 # Deep Sequence Learning
 
-Notebooks for the WUR course [Deep Learning (AIN31306)](https://studyhandbook.wur.nl/modules/AIN31306?type=Cursory), mostly focused on learning on sequential data (i.e. text, DNA, proteins). These notebooks cover three days of a larger curriculum, which is hosted elsewhere. The notebooks are accompanied by lectures based on the book [Deep Learning - Foundations and Concepts(Bishop & Bishop)](https://studyhandbook.wur.nl/modules/AIN31306?type=Cursory).
+Notebooks for the WUR course [Deep Learning (AIN31306)](https://studyhandbook.wur.nl/modules/AIN31306?type=Cursory), mostly focused on learning on sequential data (i.e. text, DNA, proteins). These notebooks cover three days of a larger curriculum, which is hosted elsewhere. The notebooks are accompanied by lectures based on the book [Deep Learning - Foundations and Concepts (Bishop & Bishop)](https://www.bishopbook.com/).
 
 Day 1:
  
